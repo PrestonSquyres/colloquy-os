@@ -12,6 +12,8 @@ mb2_end:
 
 section .bss
 align 4096
+global pml4
+global pd
 pml4:   resb 4096
 pdpt:   resb 4096
 pd:     resb 4096

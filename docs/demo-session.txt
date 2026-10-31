@@ -1,7 +1,7 @@
-Colloquy OS 0.1 (milestone 1) -- a conversation-native kernel
+Colloquy OS 0.2 (milestone 2) -- a conversation-native kernel
   loader: GRUB 2.12-1ubuntu7.3
-  memory: 127 MiB
-  tasks: shell=1 clock=2 scribe=3 hog=4; timer 100 Hz
+  memory: 127 MiB, 5 program(s) loaded by the boot loader
+  shell is task 1; 31937 free pages; timer 100 Hz
 
 Type 'help' for commands, 'about' for what makes this OS different.
 colloquy> 
@@ -9,42 +9,72 @@ colloquy> about
 Colloquy is conversation-native. It has no files, pipes or sockets.
  * Transcripts: the one kernel object. Append-only logs of authored turns.
  * Seats: unforgeable rights (listen/speak/invite) to one transcript.
-   No global namespace; you can only reach what you were invited to.
+   A program is born holding only its inbox; it reaches nothing else
+   until invited. Programs run in ring 3, in their own address spaces.
  * Hash chain: each turn carries SHA-256 of the one before it, so any
    change to history is detectable (try: tamper, then verify).
- * Budgets: CPU is a per-second allowance, not a priority. A task that
-   spends it waits, even on an idle machine (see the hog in ps).
- * kernel.ledger: the kernel narrates its own decisions as turns.
+ * Budgets: CPU is a per-second allowance, not a priority.
+ * The kernel is a participant: this shell asks it questions on kernel.desk,
+   and it narrates its own decisions in kernel.ledger.
 colloquy> ps
-  id name      state   budget  cpu/last-s  starved  lifetime
-   0 idle      ready      -       95%          0    5s
-   1 shell     ready    50/s       0%          0    0s
-   2 clock     sleep    10/s       0%          0    0s
-   3 scribe    listen   10/s       0%          0    0s
-   4 hog       ready     5/s       5%          7    0s
-colloquy> ls
-  name            turns  creator  head
-  kernel.ledger      12  kernel   69cf0f37...
-  chat                0  shell    00000000...
-  clock               2  clock    2686d8c5...
-  notes               2  scribe   cd180251...
+  id name        ring state   budget  cpu/last-s  starved  lifetime
+  0  idle        0    ready      -       0%       0        0s
+  1  shell       3    ready   50/s       0%       0        0s
+  2  console.rx  0    sleep   20/s       0%       0        0s
+  3  console.tx  0    listen  30/s       0%       0        0s
+  4  desk        0    ready   30/s       0%       0        0s
+  5  init        0    sleep   10/s       0%       0        0s
+  6  clock       3    sleep   10/s       0%       0        0s
+  7  scribe      3    listen  10/s       0%       0        0s
+  8  hog         3    ready   5/s        0%       1        0s
 colloquy> seats
-  seat  0 kernel.ledger   listen 
-  seat  1 chat            listen speak invite
-  seat  2 clock           listen 
-  seat  3 notes           listen 
-colloquy> say chat hello
-spoke turn #0 into chat
+  seat 0  inbox.1         listen 
+  seat 1  kernel.ledger   listen 
+  seat 2  console.in      listen 
+  seat 3  console.out     speak 
+  seat 4  kernel.desk     listen speak 
+  seat 5  chat            listen speak invite
+  seat 6  clock           listen 
+  seat 7  notes           listen 
+colloquy> spawn probe
+spawned 'probe' as task 9
+colloquy> seatsof 9
+  seat 0 inbox.9 listen 
+  task 9 'probe' holds 1 seat(s)
+colloquy> invite 9 chat ls
+invited task 9 to chat (their seat 1)
+colloquy> say chat @9 ring
+spoke turn #1 into chat
+colloquy> say chat @9 badptr
+spoke turn #3 into chat
+colloquy> read chat 5
+  #0   t=33     task 9  a7cb5572 | probe 9: ready; born with 1 seat(s); 4 of 4 speak attempts refused
+  #1   t=92     task 1  20987c75 | @9 ring
+  #2   t=92     task 9  d99ff74d | probe 9: running at ring 3
+  #3   t=103    task 1  8fe35dd5 | @9 badptr
+  #4   t=104    task 9  013d7a96 | probe 9: speak with a kernel pointer returned -7 (bad pointer)
+colloquy> say chat @9 kwrite
+spoke turn #5 into chat
+colloquy> ps
+  id name        ring state   budget  cpu/last-s  starved  lifetime
+  0  idle        0    ready      -       95%      0        1s
+  1  shell       3    ready   50/s       0%       0        0s
+  2  console.rx  0    sleep   20/s       0%       0        0s
+  3  console.tx  0    listen  30/s       0%       0        0s
+  4  desk        0    ready   30/s       0%       0        0s
+  5  init        0    dead    10/s       0%       0        0s
+  6  clock       3    sleep   10/s       0%       0        0s
+  7  scribe      3    listen  10/s       0%       0        0s
+  8  hog         3    ready   5/s        5%       2        0s
+  9  probe       3    dead    10/s       0%       0        0s
+       died: page fault at rip=0x400009f8 touching 0x100000
+colloquy> read kernel.ledger 4
+  #27  t=19     kernel  6b918673 | DENIED speak by task 9 'probe' (no speak seat)
+  #28  t=33     kernel  6ca9c4f9 | task 1 invited task 9 to 'chat' rights=LS
+  #29  t=104    kernel  8b79f68f | REFUSED speak by task 9: text pointer 0x100000 is outside its memory
+  #30  t=160    kernel  9767b39c | killed task 9 'probe': page fault at rip=0x400009f8 touching 0x100000
 colloquy> say clock hi
 say clock: denied: no seat with that right (logged in kernel.ledger)
-colloquy> read notes 3
-  #  0 t=     1 scribe  e7ef7234 | heard clock #0 from task 2: "tick 1, uptime 0s"
-  #  1 t=   501 scribe  cd180251 | heard clock #1 from task 2: "tick 2, uptime 5s"
-colloquy> read kernel.ledger 4
-  #  9 t=     1 kernel  d51de269 | task 2 invited task 1 to 'clock' rights=L
-  # 10 t=     1 kernel  501c63d6 | task 3 opened transcript 'notes'
-  # 11 t=     1 kernel  69cf0f37 | task 3 invited task 1 to 'notes' rights=L
-  # 12 t=   627 kernel  f448ef03 | DENIED speak by task 1 'shell' (no speak seat)
 colloquy> tamper clock 0
 tampered with clock turn #0 directly in memory (bypassing the kernel API)
 colloquy> verify clock
