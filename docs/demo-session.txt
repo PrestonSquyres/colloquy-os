@@ -1,0 +1,51 @@
+Colloquy OS 0.1 (milestone 1) -- a conversation-native kernel
+  loader: GRUB 2.12-1ubuntu7.3
+  memory: 127 MiB
+  tasks: shell=1 clock=2 scribe=3 hog=4; timer 100 Hz
+
+Type 'help' for commands, 'about' for what makes this OS different.
+colloquy> 
+colloquy> about
+Colloquy is conversation-native. It has no files, pipes or sockets.
+ * Transcripts: the one kernel object. Append-only logs of authored turns.
+ * Seats: unforgeable rights (listen/speak/invite) to one transcript.
+   No global namespace; you can only reach what you were invited to.
+ * Hash chain: each turn carries SHA-256 of the one before it, so any
+   change to history is detectable (try: tamper, then verify).
+ * Budgets: CPU is a per-second allowance, not a priority. A task that
+   spends it waits, even on an idle machine (see the hog in ps).
+ * kernel.ledger: the kernel narrates its own decisions as turns.
+colloquy> ps
+  id name      state   budget  cpu/last-s  starved  lifetime
+   0 idle      ready      -       95%          0    5s
+   1 shell     ready    50/s       0%          0    0s
+   2 clock     sleep    10/s       0%          0    0s
+   3 scribe    listen   10/s       0%          0    0s
+   4 hog       ready     5/s       5%          7    0s
+colloquy> ls
+  name            turns  creator  head
+  kernel.ledger      12  kernel   69cf0f37...
+  chat                0  shell    00000000...
+  clock               2  clock    2686d8c5...
+  notes               2  scribe   cd180251...
+colloquy> seats
+  seat  0 kernel.ledger   listen 
+  seat  1 chat            listen speak invite
+  seat  2 clock           listen 
+  seat  3 notes           listen 
+colloquy> say chat hello
+spoke turn #0 into chat
+colloquy> say clock hi
+say clock: denied: no seat with that right (logged in kernel.ledger)
+colloquy> read notes 3
+  #  0 t=     1 scribe  e7ef7234 | heard clock #0 from task 2: "tick 1, uptime 0s"
+  #  1 t=   501 scribe  cd180251 | heard clock #1 from task 2: "tick 2, uptime 5s"
+colloquy> read kernel.ledger 4
+  #  9 t=     1 kernel  d51de269 | task 2 invited task 1 to 'clock' rights=L
+  # 10 t=     1 kernel  501c63d6 | task 3 opened transcript 'notes'
+  # 11 t=     1 kernel  69cf0f37 | task 3 invited task 1 to 'notes' rights=L
+  # 12 t=   627 kernel  f448ef03 | DENIED speak by task 1 'shell' (no speak seat)
+colloquy> tamper clock 0
+tampered with clock turn #0 directly in memory (bypassing the kernel API)
+colloquy> verify clock
+verify clock: BROKEN at turn #0 (history was altered)

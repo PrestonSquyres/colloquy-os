@@ -1,0 +1,17 @@
+name: boot-and-test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 grub-pc-bin grub-common xorriso mtools
+      - name: Build
+        run: make
+      - name: Test (SHA-256 vectors + QEMU acceptance tests)
+        run: make test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colloquy.iso
+          path: build/colloquy.iso
