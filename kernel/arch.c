@@ -3,6 +3,8 @@
 #include "console.h"
 #include "lib.h"
 #include "sched.h"
+#include "syscall.h"
+#include "transcript.h"
 
 struct idt_entry { u16 off0, sel; u8 ist, type; u16 off1; u32 off2, zero; } __attribute__((packed));
 struct idt_ptr { u16 limit; u64 base; } __attribute__((packed));
@@ -37,6 +39,7 @@ void arch_init(void) {
         u64 a = isr_table[i];
         idt[i].off0 = (u16)a; idt[i].sel = 0x08; idt[i].ist = 0;
         idt[i].type = 0x8E;            /* present, ring 0, interrupt gate */
+        if (i == VEC_SYSCALL) idt[i].type = 0xEE;   /* DPL 3: user programs may call it */
         idt[i].off1 = (u16)(a >> 16); idt[i].off2 = (u32)(a >> 32); idt[i].zero = 0;
     }
     struct idt_ptr p = { sizeof idt - 1, (u64)idt };
@@ -45,17 +48,26 @@ void arch_init(void) {
     pit_init();
 }
 
-static void exception(struct frame *f) {
+static struct frame *exception(struct frame *f) {
     u64 cr2; __asm__ volatile("mov %%cr2,%0" : "=r"(cr2));
+    if ((f->cs & 3) == 3) {   /* a user program faulted: it dies, the system goes on */
+        char why[80];
+        if (f->vec == 14) fmt_into(why, sizeof why, "%s at rip=%x touching %x", exc_names[f->vec], f->rip, cr2);
+        else fmt_into(why, sizeof why, "%s at rip=%x", exc_names[f->vec], f->rip);
+        task_kill(task_current(), why);
+        return sched_switch(f);
+    }
     kprintf("\n*** CPU EXCEPTION %u (%s) in task '%s'\n", (u32)f->vec, exc_names[f->vec], sched_current_name());
     kprintf("    rip=%p err=%x cr2=%p rsp=%p\n", (void *)f->rip, (u32)f->err, (void *)cr2, (void *)f->rsp);
     kprintf("    system halted.\n");
     for (;;) __asm__ volatile("cli; hlt");
+    return f;
 }
 
 /* Called from isr_common with the saved frame; returns the frame to resume. */
 struct frame *isr_dispatch(struct frame *f) {
-    if (f->vec < 32) exception(f);
+    if (f->vec < 32) return exception(f);
+    if (f->vec == VEC_SYSCALL) return syscall_dispatch(f);
     if (f->vec == VEC_TIMER) {
         ticks++;
         outb(0x20, 0x20);
